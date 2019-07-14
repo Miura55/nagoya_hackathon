@@ -8,6 +8,9 @@ from sklearn import preprocessing
 import math
 from keras.models import model_from_json
 from datetime import datetime
+
+import requests
+import json
 #-----------------------------
 #opencv initialization
 face_cascade = cv2.CascadeClassifier('./haarcascade_frontalface_default.xml')
@@ -26,6 +29,8 @@ emotions = ( 'Angry' , 'Disgust' , 'Fear' , 'Happy'  , 'Neutral' ,  'Sad' , 'Sur
 detector = dlib.get_frontal_face_detector()
 predictor = dlib.shape_predictor("shape_predictor_68_face_landmarks.dat")
 
+URL = "https://devksmpdi.cybozu.com/k/v1/"
+AUTH = "a21pdXJhOlN1cGVybm92ZUA1NQ=="
 
 def detect_parts(image):
 	distances = []
@@ -42,14 +47,29 @@ def detect_parts(image):
 		shape = face_utils.shape_to_np(shape)
 		distances = euclidean_all(shape)
 		# visualize all facial landmarks with a transparent overlay
-		#output = face_utils.visualize_facial_landmarks(image, shape)
-		#cv2.imshow("Image", output)
-		#cv2.waitKey(0)
+		# output = face_utils.visualize_facial_landmarks(image, shape)
+		# cv2.imshow("Image", output)
+		# cv2.waitKey(0)
 	return distances
 
 def euclidean(a, b):
     dist = math.sqrt(math.pow((b[0] - a[0]), 2) + math.pow((b[1] - a[1]), 2))
     return dist
+
+def post_file(url, auth, filename):
+    """kintoneにレコードを1件登録する関数"""
+    headers = {"X-Cybozu-Authorization": auth,'X-Requested-With': 'XMLHttpRequest'}
+    image = open(filename, 'rb')
+    files={'file':('image.png',image,'image/png')}
+    resp = requests.post(url + "file.json", files=files, headers=headers)
+    return resp
+
+def post_record(url, auth, params):
+    """kintoneにレコードを1件登録する関数"""
+    headers = {"X-Cybozu-Authorization": auth, "Content-Type" : "application/json"}
+    resp = requests.post(url + 'record.json', json=params, headers=headers)
+
+    return resp
 
 # calculates distances between all 68 elements
 def euclidean_all(a):
@@ -68,7 +88,7 @@ while(True):
 	faces = face_cascade.detectMultiScale(gray, 1.3, 5)
 
 	for (x,y,w,h) in faces:
-		# cv2.rectangle(img,(x,y),(x+w,y+h),(255,0,0),2) #draw rectangle to main image
+		cv2.rectangle(img,(x,y),(x+w,y+h),(255,0,0),2) #draw rectangle to main image
 		detected_face = img[int(y):int(y+h), int(x):int(x+w)] #crop detected face
 		distances = detect_parts(detected_face)
 
@@ -94,8 +114,37 @@ while(True):
 			max_index = np.argmax(predictions[0])
 			emotion = emotions[max_index]
 
+			#write emotion text above rectangle
+			cv2.putText(img, emotion, (int(x), int(y)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+
 			if emotion != 'Neutral':
-				cv2.imwrite("imgs/{}.png".format(datetime.now().strftime("%Y%m%d%H%M%S")),img)
+				fileName = "imgs/{}.png".format(datetime.now().strftime("%Y%m%d%H%M%S"))
+				cv2.imwrite(fileName,img)
+	cv2.imshow("img", img)
+	if cv2.waitKey(1) & 0xFF == ord("q"):
+		break
+
+# up to kintone
+RESP = post_file(URL, AUTH, fileName)
+FUGA = json.loads(RESP.text)
+print(FUGA)
+
+PARAMS = {
+  "app": 14,
+  "record": {
+	  "title":{
+		"value":"ブンバボーン"
+	  },
+	"image": {
+	  "value": [{
+		"type":"FILE",
+		"fileKey": FUGA["fileKey"]
+	  }]
+	}
+  }
+}
+HOGE = post_record(URL, AUTH, PARAMS)
+
 #kill open cv things
 cap.release()
 cv2.destroyAllWindows()
